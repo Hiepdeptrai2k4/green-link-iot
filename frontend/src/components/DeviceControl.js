@@ -5,7 +5,8 @@ import {
   Lightbulb, 
   RefreshCw, 
   AlertCircle,
-  X 
+  X,
+  Cpu
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import apiService from '../services/api';
@@ -62,14 +63,33 @@ const HardwareSwitch = ({ label, icon: Icon, active, onToggle, activeColor, isLo
   );
 };
 
-export default function DeviceControl({ gardenId }) {
+export default function DeviceControl({ gardenId, pump, fan, led, mode }) {
   const { currentGardenId } = useAuth();
   const activeGardenId = gardenId || currentGardenId;
 
   // States for device relays
   const [pumpActive, setPumpActive] = useState(false);
   const [fanActive, setFanActive] = useState(false);
-  const [lightActive, setLightActive] = useState(true);
+  const [lightActive, setLightActive] = useState(false);
+
+  // Sync internal state with real-time WebSocket props
+  useEffect(() => {
+    if (pump !== undefined && pump !== null) {
+      setPumpActive(pump === 'ON' || pump === '1' || pump === true);
+    }
+  }, [pump]);
+
+  useEffect(() => {
+    if (fan !== undefined && fan !== null) {
+      setFanActive(fan === 'ON' || fan === '1' || fan === true);
+    }
+  }, [fan]);
+
+  useEffect(() => {
+    if (led !== undefined && led !== null) {
+      setLightActive(led === 'ON' || led === '1' || led === true);
+    }
+  }, [led]);
 
   // Spinner states for switches
   const [togglingDevice, setTogglingDevice] = useState({ pump: false, fan: false, light: false });
@@ -107,7 +127,7 @@ export default function DeviceControl({ gardenId }) {
       console.error(`Error toggling device ${deviceId}:`, err);
       // Revert status on backend failure
       setStatusAction(currentStatus);
-      showToast(`Không thể kết nối đến thiết bị "${deviceName}". Lệnh điều khiển thất bại.`);
+      showToast(`Không thể gửi lệnh điều khiển đến thiết bị "${deviceName}".`);
     } finally {
       setTogglingDevice(prev => ({ ...prev, [deviceKey]: false }));
     }
@@ -134,10 +154,28 @@ export default function DeviceControl({ gardenId }) {
         </div>
       )}
 
+      {/* Mode Status and Switches */}
+      <div className="flex items-center justify-between bg-white border border-slate-100 rounded-3xl px-6 py-4 shadow-sm">
+        <div className="flex items-center space-x-3">
+          <div className="p-2 bg-emerald-50 text-emerald-600 rounded-xl">
+            <Cpu className="w-5 h-5" />
+          </div>
+          <div>
+            <h3 className="font-bold text-slate-700 text-sm">Chế độ vận hành</h3>
+            <p className="text-xs text-slate-400">Được cấu hình tự động hoặc thủ công từ xa</p>
+          </div>
+        </div>
+        <div className="px-4 py-1.5 bg-slate-100 border border-slate-200/50 rounded-2xl">
+          <span className="text-xs font-black text-slate-600 tracking-wider">
+            {mode === 'AUTO' ? 'TỰ ĐỘNG (AUTO)' : 'THỦ CÔNG (MANUAL)'}
+          </span>
+        </div>
+      </div>
+
       {/* Grid of hardware switches */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <HardwareSwitch 
-          label="Water Pump" 
+          label="Water Pump (Bơm)" 
           icon={Droplet} 
           active={pumpActive} 
           isLoading={togglingDevice.pump}
@@ -145,7 +183,7 @@ export default function DeviceControl({ gardenId }) {
           activeColor="text-blue-500" 
         />
         <HardwareSwitch 
-          label="Cooling Fan" 
+          label="Cooling Fan (Quạt)" 
           icon={Fan} 
           active={fanActive} 
           isLoading={togglingDevice.fan}
@@ -153,7 +191,7 @@ export default function DeviceControl({ gardenId }) {
           activeColor="text-teal-500" 
         />
         <HardwareSwitch 
-          label="Growth Lighting" 
+          label="Growth Lighting (Đèn)" 
           icon={Lightbulb} 
           active={lightActive} 
           isLoading={togglingDevice.light}

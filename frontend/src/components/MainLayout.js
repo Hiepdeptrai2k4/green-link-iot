@@ -14,14 +14,8 @@ import {
 } from 'lucide-react';
 
 export default function MainLayout() {
-  const { user, currentGardenId, setCurrentGardenId, logout } = useAuth();
+  const { user, currentGardenId, gardens, setCurrentGardenId, logout } = useAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-
-  // Gardens list for dropdown selector
-  const gardens = [
-    { id: 'vuon-lan', name: 'Vườn Lan' },
-    { id: 'vuon-cam', name: 'Vườn Cam' }
-  ];
 
   // Navigation schema for sidebar links as requested
   const navigation = [
@@ -124,15 +118,18 @@ export default function MainLayout() {
             <div className="relative">
               <select
                 id="garden-select"
-                value={currentGardenId || 'vuon-lan'}
+                value={currentGardenId || (gardens[0] ? (gardens[0].deviceId || gardens[0].id) : '')}
                 onChange={(e) => setCurrentGardenId(e.target.value)}
                 className="bg-slate-50 border border-slate-200 text-slate-700 font-bold text-sm rounded-xl py-2 pl-4 pr-10 appearance-none focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 cursor-pointer shadow-sm transition"
               >
-                {gardens.map((g) => (
-                  <option key={g.id} value={g.id}>
-                    {g.name}
-                  </option>
-                ))}
+                {gardens && gardens.map((g) => {
+                  const devId = g.deviceId || g.id;
+                  return (
+                    <option key={devId} value={devId}>
+                      {g.deviceName || g.name || devId}
+                    </option>
+                  );
+                })}
               </select>
               <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-slate-400">
                 <ChevronDown className="w-4 h-4" />
