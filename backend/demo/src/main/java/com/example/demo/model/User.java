@@ -34,6 +34,12 @@ public class User {
     @Column(name = "email", length = 50)
     private String email;
 
+    @Column(name = "telegram_chat_id")
+    private String telegramChatId;
+
+    @Column(name = "phone_number", length = 20)
+    private String phoneNumber;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 }

@@ -92,7 +92,6 @@ export default function MainLayout() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="text-sm font-bold text-white truncate">{user?.name || 'Garden Caretaker'}</p>
-              <p className="text-xs text-green-300/60 truncate">{user?.email || 'admin@greenlink.iot'}</p>
             </div>
           </div>
         </div>

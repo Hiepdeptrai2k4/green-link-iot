@@ -8,10 +8,13 @@ import com.example.demo.repository.DeviceRepository;
 import com.example.demo.repository.UserRepository;
 import com.example.demo.model.SensorData;
 import com.example.demo.repository.SensorDataRepository;
+import com.example.demo.service.MqttGatewayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+
+import org.springframework.security.crypto.password.PasswordEncoder;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -31,6 +34,8 @@ public class AdminController {
     private final DeviceRepository deviceRepository;
     private final AutoConfigRepository autoConfigRepository;
     private final SensorDataRepository sensorDataRepository;
+    private final PasswordEncoder passwordEncoder;
+    private final MqttGatewayService mqttGatewayService;
 
     // ==========================================
     // USER MANAGEMENT
@@ -50,6 +55,9 @@ public class AdminController {
         String password = payload.get("password");
         String fullName = payload.get("fullName");
         String role = payload.get("role");
+        String telegramChatId = payload.get("telegramChatId");
+        String phoneNumber = payload.get("phoneNumber");
+        String email = payload.get("email");
 
         if (username == null || password == null || fullName == null) {
             return ResponseEntity.badRequest().body(Map.of("message", "Missing required fields"));
@@ -59,16 +67,22 @@ public class AdminController {
             role = "USER";
         }
 
+        if (email == null || email.trim().isEmpty()) {
+            email = username;
+        }
+
         if (userRepository.findByUsername(username).isPresent()) {
             return ResponseEntity.badRequest().body(Map.of("message", "Email/Username already exists"));
         }
 
         User user = User.builder()
                 .username(username)
-                .email(username)
-                .password(password)
+                .email(email)
+                .password(passwordEncoder.encode(password))
                 .fullName(fullName)
                 .role(role.toUpperCase())
+                .telegramChatId(telegramChatId)
+                .phoneNumber(phoneNumber)
                 .build();
 
         User saved = userRepository.save(user);
@@ -84,6 +98,10 @@ public class AdminController {
         if (user.getEmail() == null || user.getEmail().trim().isEmpty()) {
             user.setEmail(user.getUsername());
         }
+        // Hash the password before saving
+        if (user.getPassword() != null && !user.getPassword().trim().isEmpty()) {
+            user.setPassword(passwordEncoder.encode(user.getPassword()));
+        }
         User savedUser = userRepository.save(user);
         return ResponseEntity.ok(savedUser);
     }
@@ -96,11 +114,13 @@ public class AdminController {
         }
         User user = opt.get();
         user.setUsername(userDetails.getUsername());
-        user.setEmail(userDetails.getUsername());
+        user.setEmail(userDetails.getEmail() != null ? userDetails.getEmail() : userDetails.getUsername());
         user.setFullName(userDetails.getFullName());
         user.setRole(userDetails.getRole());
+        user.setTelegramChatId(userDetails.getTelegramChatId());
+        user.setPhoneNumber(userDetails.getPhoneNumber());
         if (userDetails.getPassword() != null && !userDetails.getPassword().trim().isEmpty()) {
-            user.setPassword(userDetails.getPassword());
+            user.setPassword(passwordEncoder.encode(userDetails.getPassword()));
         }
         return ResponseEntity.ok(userRepository.save(user));
     }
@@ -145,14 +165,18 @@ public class AdminController {
                 map.put("user", userMap);
             }
             
-            Optional<SensorData> latestData = sensorDataRepository.findFirstByDeviceDeviceIdOrderByTimestampDesc(d.getDeviceId());
-            boolean online = false;
+            boolean online = mqttGatewayService.isDeviceOnline(d.getDeviceId());
+            LocalDateTime lastSeen = mqttGatewayService.getRealLastSeen(d.getDeviceId());
             String lastSeenStr = "Chưa nhận tin";
-            if (latestData.isPresent()) {
-                LocalDateTime ts = latestData.get().getTimestamp();
-                if (ts != null) {
-                    online = ts.isAfter(now.minusMinutes(2)); // Active in the last 2 minutes
-                    lastSeenStr = ts.toString();
+            if (lastSeen != null) {
+                lastSeenStr = lastSeen.toString();
+            } else {
+                Optional<SensorData> latestData = sensorDataRepository.findFirstByDeviceDeviceIdOrderByTimestampDesc(d.getDeviceId());
+                if (latestData.isPresent()) {
+                    LocalDateTime ts = latestData.get().getTimestamp();
+                    if (ts != null) {
+                        lastSeenStr = ts.toString();
+                    }
                 }
             }
             map.put("isOnline", online);

@@ -128,7 +128,10 @@ export default function AdminDevices() {
   const filteredDevices = devicesList.filter(d => 
     d.deviceId.toLowerCase().includes(deviceSearch.toLowerCase()) ||
     d.deviceName.toLowerCase().includes(deviceSearch.toLowerCase()) ||
-    (d.user?.fullName && d.user.fullName.toLowerCase().includes(deviceSearch.toLowerCase()))
+    (d.user?.fullName 
+      ? d.user.fullName.toLowerCase().includes(deviceSearch.toLowerCase())
+      : "chưa gán".includes(deviceSearch.toLowerCase()) || "chua gan".includes(deviceSearch.toLowerCase())
+    )
   );
 
   const formatLastSeen = (isoString) => {

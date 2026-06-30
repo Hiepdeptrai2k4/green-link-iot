@@ -5,53 +5,18 @@ const apiService = {
    * Fetch latest telemetry for a specific garden/device
    */
   getSensors: async (deviceId) => {
-    try {
-      return await axiosClient.get(`/garden/${deviceId}/latest`);
-    } catch (err) {
-      console.warn(`Could not retrieve telemetry for device ${deviceId}, using defaults:`, err);
-      return {
-        data: {
-          temp: 26.5,
-          humi: 68.2,
-          lux: 1250,
-          soil: 55.0,
-          led: "OFF",
-          fan: "OFF",
-          pump: "OFF",
-          mode: "MANUAL"
-        }
-      };
-    }
+    return await axiosClient.get(`/garden/${deviceId}/latest`);
   },
   
   /**
    * Fetch historical trend charts for a specific garden/device
    */
   getHistory: async (deviceId) => {
-    try {
-      return await axiosClient.get(`/garden/${deviceId}/history`);
-    } catch (err) {
-      console.warn("Could not retrieve history logs, generating local fallback:", err);
-      const mockHistory = Array.from({ length: 12 }, (_, i) => {
-        const hour = (new Date().getHours() - (11 - i) + 24) % 24;
-        return {
-          time: `${hour.toString().padStart(2, '0')}:00`,
-          Temperature: parseFloat((24 + Math.sin(i / 2) * 3 + Math.random() * 0.4).toFixed(1)),
-          Humidity: Math.round(55 + Math.cos(i / 2) * 8 + Math.random() * 2),
-          Soil: Math.round(50 + Math.sin(i / 3) * 5 + Math.random() * 1.5),
-        };
-      });
-      return { data: mockHistory };
-    }
+    return await axiosClient.get(`/garden/${deviceId}/history`);
   },
   
   getActuatorHistory: async (deviceId) => {
-    try {
-      return await axiosClient.get(`/garden/${deviceId}/actuator-history`);
-    } catch (err) {
-      console.warn("Could not retrieve actuator history logs, returning local fallback:", err);
-      return { data: [] };
-    }
+    return await axiosClient.get(`/garden/${deviceId}/actuator-history`);
   },
   
   /**
@@ -94,6 +59,34 @@ const apiService = {
 
   updateThresholds: async (deviceId, payload) => {
     return axiosClient.post(`/garden/${deviceId}/thresholds`, payload);
+  },
+  
+  renameGarden: async (deviceId, deviceName) => {
+    return axiosClient.post(`/garden/${deviceId}/rename`, { deviceName });
+  },
+
+  getUserProfile: async (email) => {
+    return axiosClient.get(`/garden/profile?email=${email}`);
+  },
+
+  updateUserProfile: async (email, payload) => {
+    return axiosClient.post(`/garden/profile?email=${email}`, payload);
+  },
+
+  toggleTelegramAlerts: async (deviceId, enabled) => {
+    return axiosClient.post(`/garden/${deviceId}/telegram-alerts`, { enabled });
+  },
+
+  changePassword: async (email, currentPassword, newPassword) => {
+    return axiosClient.post(`/garden/change-password?email=${email}`, { currentPassword, newPassword });
+  },
+
+  sendOtp: async (email) => {
+    return axiosClient.post('/auth/send-otp', { email });
+  },
+
+  verifyOtpAndResetPassword: async (email, otp, newPassword) => {
+    return axiosClient.post('/auth/verify-otp-reset', { email, otp, newPassword });
   },
 
   // ==========================================
@@ -154,6 +147,10 @@ const apiService = {
 
   deleteDevice: async (deviceId) => {
     return axiosClient.delete(`/admin/devices/${deviceId}`);
+  },
+
+  register: async (userData) => {
+    return axiosClient.post('/auth/register', userData);
   }
 };
 

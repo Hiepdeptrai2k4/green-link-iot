@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.jdbc.datasource.init.ScriptUtils;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Component;
 
 import javax.sql.DataSource;
@@ -25,9 +26,12 @@ public class DataSeeder implements CommandLineRunner {
     private final ScheduleRepository scheduleRepository;
     private final SensorDataRepository sensorDataRepository;
     private final DataSource dataSource;
+    private final PasswordEncoder passwordEncoder;
 
     @Override
     public void run(String... args) throws Exception {
+        // Disabled database recreation on startup to persist user changes
+        /*
         log.info("[DataSeeder] Recreating database schema from setup_database.sql...");
         try (Connection conn = dataSource.getConnection()) {
             conn.createStatement().execute("SET FOREIGN_KEY_CHECKS = 0;");
@@ -38,12 +42,22 @@ public class DataSeeder implements CommandLineRunner {
         } catch (Exception e) {
             log.error("[DataSeeder] Failed to execute setup_database.sql script", e);
         }
+        */
+
+        log.info("[DataSeeder] Purging old sensor_data and actuator_history tables...");
+        try (Connection conn = dataSource.getConnection()) {
+            conn.createStatement().execute("DELETE FROM sensor_data;");
+            conn.createStatement().execute("DELETE FROM actuator_history;");
+            log.info("[DataSeeder] Tables purged successfully!");
+        } catch (Exception e) {
+            log.error("[DataSeeder] Failed to purge tables", e);
+        }
 
         log.info("[DataSeeder] Seeding default records...");
 
         // 1. Seed Users (ADMIN & USER roles)
-        User admin = seedUser("Hiệp Admin", "admin@test.com", "123", "ADMIN");
-        User farmer = seedUser("Nông dân", "user@test.com", "123", "USER");
+        User admin = seedUser("Hiệp Admin", "admin@test.com", "123", "ADMIN", null, "admin@test.com", null);
+        User farmer = seedUser("Nông dân", "user@test.com", "123", "USER", "6039112287", "user@test.com", "0987654321");
 
         // 2. Seed Devices (using device_id VARCHAR keys matching your MQTT topic structure)
         Device device1 = seedDevice("User_Hiep_01", farmer, "Vườn Lan");
@@ -59,23 +73,48 @@ public class DataSeeder implements CommandLineRunner {
         seedSchedule(device2, "PUMP", "07:30", 10, false);
 
         // 5. Seed SensorData History (distinct telemetry for both gardens)
-        seedSensorHistory(device1, 24.5, 70.0, 1200.0, 55);
-        seedSensorHistory(device2, 29.5, 60.0, 800.0, 45);
+        // seedSensorHistory(device1, 24.5, 70.0, 1200.0, 55);
+        // seedSensorHistory(device2, 29.5, 60.0, 800.0, 45);
 
         log.info("[DataSeeder] Seeded default records successfully!");
     }
 
-    private User seedUser(String fullName, String username, String password, String role) {
+    private User seedUser(String fullName, String username, String password, String role, String telegramChatId, String email, String phoneNumber) {
         Optional<User> opt = userRepository.findByUsername(username);
         if (opt.isPresent()) {
-            return opt.get();
+            User existing = opt.get();
+            boolean changed = false;
+            if (telegramChatId != null && (existing.getTelegramChatId() == null || existing.getTelegramChatId().trim().isEmpty())) {
+                existing.setTelegramChatId(telegramChatId);
+                changed = true;
+            }
+            if (email != null && (existing.getEmail() == null || existing.getEmail().trim().isEmpty())) {
+                existing.setEmail(email);
+                changed = true;
+            }
+            if (phoneNumber != null && (existing.getPhoneNumber() == null || existing.getPhoneNumber().trim().isEmpty())) {
+                existing.setPhoneNumber(phoneNumber);
+                changed = true;
+            }
+            // Auto-migrate plaintext passwords to BCrypt
+            if (existing.getPassword() != null && !existing.getPassword().startsWith("$2a$") && !existing.getPassword().startsWith("$2b$")) {
+                log.info("[DataSeeder] Migrating plaintext password to BCrypt for user: {}", username);
+                existing.setPassword(passwordEncoder.encode(existing.getPassword()));
+                changed = true;
+            }
+            if (changed) {
+                userRepository.save(existing);
+            }
+            return existing;
         }
         User user = User.builder()
                 .fullName(fullName)
                 .username(username)
-                .email(username)
-                .password(password)
+                .email(email)
+                .password(passwordEncoder.encode(password)) // Hash password with BCrypt
                 .role(role)
+                .telegramChatId(telegramChatId)
+                .phoneNumber(phoneNumber)
                 .build();
         userRepository.save(user);
         log.info("Seeded user: {} (role: {})", username, role);

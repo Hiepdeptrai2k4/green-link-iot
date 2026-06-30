@@ -10,10 +10,13 @@ import com.example.demo.repository.AutoConfigRepository;
 import com.example.demo.repository.DeviceRepository;
 import com.example.demo.repository.ScheduleRepository;
 import com.example.demo.repository.SensorDataRepository;
+import com.example.demo.repository.UserRepository;
+import com.example.demo.model.User;
 import com.example.demo.service.MqttGatewayService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDateTime;
@@ -26,16 +29,79 @@ import java.util.*;
 @RequiredArgsConstructor
 public class GardenApiController {
 
+    private final UserRepository userRepository;
     private final MqttGatewayService mqttGatewayService;
     private final DeviceRepository deviceRepository;
     private final SensorDataRepository sensorDataRepository;
     private final ActuatorHistoryRepository actuatorHistoryRepository;
     private final AutoConfigRepository autoConfigRepository;
     private final ScheduleRepository scheduleRepository;
+    private final PasswordEncoder passwordEncoder;
 
-    // ==========================================
-    // GARDENS LIST FOR OWNER (ACTIVE ONLY)
-    // ==========================================
+
+
+    @GetMapping("/profile")
+    public ResponseEntity<?> getUserProfile(@RequestParam String email) {
+        Optional<User> opt = userRepository.findByUsername(email);
+        if (!opt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = opt.get();
+        Map<String, Object> response = new HashMap<>();
+        response.put("id", user.getId());
+        response.put("fullName", user.getFullName());
+        response.put("username", user.getUsername());
+        response.put("email", user.getEmail() != null ? user.getEmail() : "");
+        response.put("telegramChatId", user.getTelegramChatId() != null ? user.getTelegramChatId() : "");
+        response.put("phoneNumber", user.getPhoneNumber() != null ? user.getPhoneNumber() : "");
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/profile")
+    public ResponseEntity<?> updateUserProfile(@RequestParam String email, @RequestBody Map<String, String> payload) {
+        Optional<User> opt = userRepository.findByUsername(email);
+        if (!opt.isPresent()) {
+            return ResponseEntity.notFound().build();
+        }
+        User user = opt.get();
+        if (payload.containsKey("telegramChatId")) {
+            user.setTelegramChatId(payload.get("telegramChatId"));
+        }
+        if (payload.containsKey("fullName")) {
+            user.setFullName(payload.get("fullName"));
+        }
+        if (payload.containsKey("phoneNumber")) {
+            user.setPhoneNumber(payload.get("phoneNumber"));
+        }
+        if (payload.containsKey("email")) {
+            user.setEmail(payload.get("email"));
+        }
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "Profile updated successfully"));
+    }
+
+    @PostMapping("/change-password")
+    public ResponseEntity<?> changePassword(@RequestParam String email, @RequestBody Map<String, String> payload) {
+        Optional<User> opt = userRepository.findByUsername(email);
+        if (!opt.isPresent()) {
+            return ResponseEntity.status(404).body(Map.of("message", "Người dùng không tồn tại"));
+        }
+        User user = opt.get();
+        String currentPassword = payload.get("currentPassword");
+        String newPassword = payload.get("newPassword");
+        
+        if (currentPassword == null || newPassword == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Mật khẩu hiện tại và mật khẩu mới là bắt buộc"));
+        }
+        
+        if (!passwordEncoder.matches(currentPassword, user.getPassword())) {
+            return ResponseEntity.status(401).body(Map.of("message", "Mật khẩu hiện tại không chính xác"));
+        }
+        
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+        return ResponseEntity.ok(Map.of("message", "Thay đổi mật khẩu thành công"));
+    }
 
     @GetMapping("/my-gardens")
     public ResponseEntity<?> getMyGardens(
@@ -61,6 +127,7 @@ public class GardenApiController {
             map.put("deviceId", d.getDeviceId());
             map.put("deviceName", d.getDeviceName());
             map.put("status", d.getStatus());
+            map.put("telegramAlertsEnabled", d.getTelegramAlertsEnabled() == null || d.getTelegramAlertsEnabled());
             map.put("createdAt", d.getCreatedAt());
             
             if (d.getUser() != null) {
@@ -72,14 +139,18 @@ public class GardenApiController {
                 map.put("user", userMap);
             }
 
-            Optional<SensorData> latestData = sensorDataRepository.findFirstByDeviceDeviceIdOrderByTimestampDesc(d.getDeviceId());
-            boolean online = false;
+            boolean online = mqttGatewayService.isDeviceOnline(d.getDeviceId());
+            LocalDateTime lastSeen = mqttGatewayService.getRealLastSeen(d.getDeviceId());
             String lastSeenStr = "Chưa nhận tin";
-            if (latestData.isPresent()) {
-                LocalDateTime ts = latestData.get().getTimestamp();
-                if (ts != null) {
-                    online = ts.isAfter(now.minusMinutes(2)); // considered online if active in last 2 minutes
-                    lastSeenStr = ts.toString();
+            if (lastSeen != null) {
+                lastSeenStr = lastSeen.toString();
+            } else {
+                Optional<SensorData> latestData = sensorDataRepository.findFirstByDeviceDeviceIdOrderByTimestampDesc(d.getDeviceId());
+                if (latestData.isPresent()) {
+                    LocalDateTime ts = latestData.get().getTimestamp();
+                    if (ts != null) {
+                        lastSeenStr = ts.toString();
+                    }
                 }
             }
             map.put("isOnline", online);
@@ -288,6 +359,34 @@ public class GardenApiController {
         }
         
         return ResponseEntity.ok(autoConfigRepository.save(config));
+    }
+
+    @PostMapping("/{deviceId}/rename")
+    public ResponseEntity<?> renameGarden(@PathVariable String deviceId, @RequestBody Map<String, String> payload) {
+        validateOwnership(deviceId);
+        String newName = payload.get("deviceName");
+        if (newName == null || newName.trim().isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Tên vườn không được để trống"));
+        }
+        Device device = deviceRepository.findById(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device not found: " + deviceId));
+        device.setDeviceName(newName.trim());
+        deviceRepository.save(device);
+        return ResponseEntity.ok(Map.of("message", "Đổi tên vườn thành công", "deviceName", device.getDeviceName()));
+    }
+
+    @PostMapping("/{deviceId}/telegram-alerts")
+    public ResponseEntity<?> toggleTelegramAlerts(@PathVariable String deviceId, @RequestBody Map<String, Boolean> payload) {
+        validateOwnership(deviceId);
+        Boolean enabled = payload.get("enabled");
+        if (enabled == null) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Tham số 'enabled' là bắt buộc"));
+        }
+        Device device = deviceRepository.findById(deviceId)
+                .orElseThrow(() -> new IllegalArgumentException("Device not found: " + deviceId));
+        device.setTelegramAlertsEnabled(enabled);
+        deviceRepository.save(device);
+        return ResponseEntity.ok(Map.of("message", "Đã cập nhật trạng thái cảnh báo Telegram cho vườn này", "telegramAlertsEnabled", device.getTelegramAlertsEnabled()));
     }
 
     // ==========================================

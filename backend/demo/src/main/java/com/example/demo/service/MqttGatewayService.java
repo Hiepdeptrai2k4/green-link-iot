@@ -4,10 +4,12 @@ import com.example.demo.model.ActuatorHistory;
 import com.example.demo.model.AutoConfig;
 import com.example.demo.model.Device;
 import com.example.demo.model.SensorData;
+import com.example.demo.model.User;
 import com.example.demo.repository.ActuatorHistoryRepository;
 import com.example.demo.repository.AutoConfigRepository;
 import com.example.demo.repository.DeviceRepository;
 import com.example.demo.repository.SensorDataRepository;
+import com.example.demo.repository.UserRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PostConstruct;
@@ -42,20 +44,24 @@ public class MqttGatewayService implements MqttCallback {
     private static final String WILDCARD_TOPIC = "hiep/#";
 
     private final DeviceRepository deviceRepository;
+    private final UserRepository userRepository;
     private final SensorDataRepository sensorDataRepository;
     private final ActuatorHistoryRepository actuatorHistoryRepository;
     private final AutoConfigRepository autoConfigRepository;
     private final SimpMessagingTemplate messagingTemplate;
     private final ObjectMapper objectMapper;
+    private final TelegramAlertService telegramAlertService;
 
     private IMqttClient mqttClient;
     private final Map<String, SensorData> latestSensorDataMap = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> lastSeenMap = new ConcurrentHashMap<>();
+    private final Map<String, LocalDateTime> realLastSeenMap = new ConcurrentHashMap<>();
     private final ScheduledExecutorService scheduler = Executors.newSingleThreadScheduledExecutor();
 
     @PostConstruct
     public void init() {
         new Thread(this::connectToMqttBroker).start();
-        startSimulationLoop();
+        // startSimulationLoop(); // Disabled mock data simulation
     }
 
     private void startSimulationLoop() {
@@ -70,13 +76,10 @@ public class MqttGatewayService implements MqttCallback {
                 
                 for (Device d : devices) {
                     // Check if this device has sent telemetry data in the last 15 seconds
-                    Optional<SensorData> latestData = sensorDataRepository.findFirstByDeviceDeviceIdOrderByTimestampDesc(d.getDeviceId());
+                    LocalDateTime lastSeen = lastSeenMap.get(d.getDeviceId());
                     boolean needsSimulation = true;
-                    if (latestData.isPresent()) {
-                        LocalDateTime ts = latestData.get().getTimestamp();
-                        if (ts != null && ts.isAfter(now.minusSeconds(15))) {
-                            needsSimulation = false;
-                        }
+                    if (lastSeen != null && lastSeen.isAfter(now.minusSeconds(15))) {
+                        needsSimulation = false;
                     }
                     
                     if (needsSimulation) {
@@ -101,6 +104,7 @@ public class MqttGatewayService implements MqttCallback {
                         payloadMap.put("fan", "OFF");
                         payloadMap.put("pump", "OFF");
                         payloadMap.put("mode", "MANUAL");
+                        payloadMap.put("simulated", true);
 
                         String jsonPayload = objectMapper.writeValueAsString(payloadMap);
                         MqttMessage mqttMessage = new MqttMessage(jsonPayload.getBytes(StandardCharsets.UTF_8));
@@ -163,53 +167,97 @@ public class MqttGatewayService implements MqttCallback {
                     deviceId = parts[1];
                 }
 
-                // Look up device in database
+                // Look up device in database, or auto-register if not found
                 Optional<Device> deviceOpt = deviceRepository.findById(deviceId);
+                Device device;
                 if (deviceOpt.isPresent()) {
-                    Device device = deviceOpt.get();
-                    
-                    // Parse incoming JSON telemetry
-                    TelemetryPayload rawData = objectMapper.readValue(payload, TelemetryPayload.class);
-                    
-                    // Process AUTO mode logic for thresholds
-                    runAutoLogic(device, rawData);
-
-                    // Map DTO payload to SensorData JPA entity
-                    SensorData sensorData = SensorData.builder()
-                            .device(device)
-                            .temperature(rawData.getTemp())
-                            .humidity(rawData.getHumi())
-                            .lux(rawData.getLux())
-                            .soilMoisture(rawData.getSoil() != null ? rawData.getSoil().intValue() : 0)
-                            .timestamp(LocalDateTime.now())
-                            .build();
-
-                    // Persist to MySQL sensor_data table
-                    sensorDataRepository.save(sensorData);
-
-                    // Update latest in-memory cache
-                    latestSensorDataMap.put(device.getDeviceId(), sensorData);
-
-                    // Build and broadcast UI telemetry update payload
-                    Map<String, Object> uiPayload = new HashMap<>();
-                    uiPayload.put("temp", sensorData.getTemperature());
-                    uiPayload.put("humi", sensorData.getHumidity());
-                    uiPayload.put("lux", sensorData.getLux());
-                    uiPayload.put("soil", sensorData.getSoilMoisture());
-                    uiPayload.put("led", rawData.getLed());
-                    uiPayload.put("fan", rawData.getFan());
-                    uiPayload.put("pump", rawData.getPump());
-                    uiPayload.put("mode", rawData.getMode());
-
-                    if (device.getStatus() != null && device.getStatus()) {
-                        String wsTopic = "/topic/garden/" + device.getDeviceId();
-                        messagingTemplate.convertAndSend(wsTopic, uiPayload);
-                        log.info("Broadcasted live data to WebSocket topic: {}", wsTopic);
-                    } else {
-                        log.debug("Skipping WebSocket broadcast: Device '{}' is not active/connected.", device.getDeviceId());
-                    }
+                    device = deviceOpt.get();
                 } else {
-                    log.warn("Received data for unregistered device ID: {}", deviceId);
+                    log.info("Unregistered device detected: {}. Performing auto-registration with no owner.", deviceId);
+                    
+                    // Create new device with no owner (user = null)
+                    device = Device.builder()
+                            .deviceId(deviceId)
+                            .user(null)
+                            .deviceName("Vườn tự động " + deviceId)
+                            .status(true) // Default status to Online/Active
+                            .telegramAlertsEnabled(true)
+                            .build();
+                    device = deviceRepository.save(device);
+                    log.info("Auto-registered new device: {} with no owner", deviceId);
+                    
+                    // Create default AutoConfig
+                    AutoConfig autoConfig = AutoConfig.builder()
+                            .device(device)
+                            .mode("MANUAL")
+                            .minSoilMoisture(40)
+                            .maxTemperature(35.0)
+                            .build();
+                    autoConfigRepository.save(autoConfig);
+                    log.info("Created default AutoConfig for auto-registered device: {}", deviceId);
+                }
+
+                // Parse incoming JSON telemetry
+                TelemetryPayload rawData = objectMapper.readValue(payload, TelemetryPayload.class);
+                
+                // Update last seen maps so Online/Offline status is tracked
+                LocalDateTime msgTime = LocalDateTime.now();
+                lastSeenMap.put(device.getDeviceId(), msgTime);
+                if (rawData.getSimulated() == null || !rawData.getSimulated()) {
+                    realLastSeenMap.put(device.getDeviceId(), msgTime);
+                }
+                
+                // If device has no owner (unlinked/unassigned), ignore telemetry to prevent database flooding
+                if (device.getUser() == null) {
+                    log.warn("[SECURITY] Ignored telemetry for unlinked device: {}", deviceId);
+                    return;
+                }
+                
+                // Fetch AutoConfig from database configuration (source of truth for operational mode)
+                Optional<AutoConfig> configOpt = autoConfigRepository.findByDeviceDeviceId(device.getDeviceId());
+                String currentMode = "MANUAL";
+                if (configOpt.isPresent()) {
+                    currentMode = configOpt.get().getMode();
+                }
+
+                // Process AUTO mode logic for thresholds
+                if (configOpt.isPresent()) {
+                    runAutoLogic(device, rawData, configOpt.get());
+                }
+
+                // Map DTO payload to SensorData JPA entity
+                SensorData sensorData = SensorData.builder()
+                        .device(device)
+                        .temperature(rawData.getTemp())
+                        .humidity(rawData.getHumi())
+                        .lux(rawData.getLux())
+                        .soilMoisture(rawData.getSoil() != null ? rawData.getSoil().intValue() : 0)
+                        .timestamp(LocalDateTime.now())
+                        .build();
+
+                // Persist to MySQL sensor_data table
+                sensorDataRepository.save(sensorData);
+
+                // Update latest in-memory cache
+                latestSensorDataMap.put(device.getDeviceId(), sensorData);
+
+                // Build and broadcast UI telemetry update payload
+                Map<String, Object> uiPayload = new HashMap<>();
+                uiPayload.put("temp", sensorData.getTemperature());
+                uiPayload.put("humi", sensorData.getHumidity());
+                uiPayload.put("lux", sensorData.getLux());
+                uiPayload.put("soil", sensorData.getSoilMoisture());
+                uiPayload.put("led", rawData.getLed());
+                uiPayload.put("fan", rawData.getFan());
+                uiPayload.put("pump", rawData.getPump());
+                uiPayload.put("mode", currentMode);
+
+                if (device.getStatus() != null && device.getStatus()) {
+                    String wsTopic = "/topic/garden/" + device.getDeviceId();
+                    messagingTemplate.convertAndSend(wsTopic, uiPayload);
+                    log.info("Broadcasted live data to WebSocket topic: {}", wsTopic);
+                } else {
+                    log.debug("Skipping WebSocket broadcast: Device '{}' is not active/connected.", device.getDeviceId());
                 }
                 
             } catch (Exception e) {
@@ -218,11 +266,8 @@ public class MqttGatewayService implements MqttCallback {
         }
     }
 
-    private void runAutoLogic(Device device, TelemetryPayload rawData) {
-        Optional<AutoConfig> configOpt = autoConfigRepository.findByDeviceDeviceId(device.getDeviceId());
-        if (configOpt.isPresent()) {
-            AutoConfig config = configOpt.get();
-            if ("AUTO".equalsIgnoreCase(config.getMode())) {
+    private void runAutoLogic(Device device, TelemetryPayload rawData, AutoConfig config) {
+        if ("AUTO".equalsIgnoreCase(config.getMode())) {
                 
                 // 1. Soil moisture trigger -> Pump ON
                 if (rawData.getSoil() != null && config.getMinSoilMoisture() != null) {
@@ -231,6 +276,16 @@ public class MqttGatewayService implements MqttCallback {
                                 rawData.getSoil(), config.getMinSoilMoisture(), device.getDeviceId());
                         sendControlCommandSilent(device, "pump", "ON");
                         rawData.setPump("ON");
+
+                        // Telegram Alert Notification
+                        if (device.getUser() != null && device.getUser().getTelegramChatId() != null && !device.getUser().getTelegramChatId().trim().isEmpty() &&
+                            (device.getTelegramAlertsEnabled() == null || device.getTelegramAlertsEnabled())) {
+                            String msg = "🚨 <b>[CẢNH BÁO GREEN LINK]</b>\n" +
+                                         "Khu vườn: <b>" + device.getDeviceName() + "</b>\n" +
+                                         "Chỉ số: Độ ẩm đất cực thấp <b>" + rawData.getSoil() + "%</b> (Dưới mức tối thiểu " + config.getMinSoilMoisture() + "%).\n" +
+                                         "Trạng thái: Máy bơm nước đã được tự động kích hoạt!";
+                            telegramAlertService.sendAlert(device.getUser().getTelegramChatId(), msg);
+                        }
                     }
                 }
 
@@ -241,10 +296,19 @@ public class MqttGatewayService implements MqttCallback {
                                 rawData.getTemp(), config.getMaxTemperature(), device.getDeviceId());
                         sendControlCommandSilent(device, "fan", "ON");
                         rawData.setFan("ON");
+
+                        // Telegram Alert Notification
+                        if (device.getUser() != null && device.getUser().getTelegramChatId() != null && !device.getUser().getTelegramChatId().trim().isEmpty() &&
+                            (device.getTelegramAlertsEnabled() == null || device.getTelegramAlertsEnabled())) {
+                            String msg = "⚠️ <b>[CẢNH BÁO GREEN LINK]</b>\n" +
+                                         "Khu vườn: <b>" + device.getDeviceName() + "</b>\n" +
+                                         "Chỉ số: Nhiệt độ vượt ngưỡng <b>" + rawData.getTemp() + "°C</b> (Vượt mức tối đa " + config.getMaxTemperature() + "°C).\n" +
+                                         "Trạng thái: Quạt hút thông gió đã được tự động kích hoạt!";
+                            telegramAlertService.sendAlert(device.getUser().getTelegramChatId(), msg);
+                        }
                     }
                 }
             }
-        }
     }
 
     @Override
@@ -328,6 +392,18 @@ public class MqttGatewayService implements MqttCallback {
         }
     }
 
+    public boolean isDeviceOnline(String deviceId) {
+        LocalDateTime lastSeen = realLastSeenMap.get(deviceId);
+        if (lastSeen == null) {
+            lastSeen = lastSeenMap.get(deviceId);
+        }
+        return lastSeen != null && lastSeen.isAfter(LocalDateTime.now().minusMinutes(2));
+    }
+
+    public LocalDateTime getRealLastSeen(String deviceId) {
+        return realLastSeenMap.get(deviceId);
+    }
+
     @Data
     @JsonIgnoreProperties(ignoreUnknown = true)
     public static class TelemetryPayload {
@@ -339,5 +415,6 @@ public class MqttGatewayService implements MqttCallback {
         private String fan;
         private String pump;
         private String mode;
+        private Boolean simulated;
     }
 }

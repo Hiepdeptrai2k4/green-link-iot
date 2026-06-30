@@ -32,14 +32,7 @@ export default function AdminDashboard() {
   const [deviceSearch, setDeviceSearch] = useState('');
   const [userSearch, setUserSearch] = useState('');
 
-  // Form State for User Account Creation
-  const [newUser, setNewUser] = useState({
-    fullName: '',
-    username: '', // Gmail address
-    password: '',
-    role: 'USER'
-  });
-  const [creatingUser, setCreatingUser] = useState(false);
+
 
   // Form State for Device Registration
   const [newDevice, setNewDevice] = useState({
@@ -83,27 +76,7 @@ export default function AdminDashboard() {
     loadAdminData();
   }, []);
 
-  // Submit User creation
-  const handleCreateUser = async (e) => {
-    e.preventDefault();
-    if (!newUser.fullName.trim() || !newUser.username.trim() || !newUser.password.trim()) {
-      alert('Vui lòng điền đầy đủ thông tin tài khoản!');
-      return;
-    }
 
-    setCreatingUser(true);
-    try {
-      await apiService.createUserAccount(newUser);
-      alert('Tạo tài khoản nông dân thành công!');
-      setNewUser({ fullName: '', username: '', password: '', role: 'USER' });
-      await loadAdminData();
-    } catch (err) {
-      console.error(err);
-      alert(err.response?.data?.message || 'Lỗi khi tạo tài khoản người dùng.');
-    } finally {
-      setCreatingUser(false);
-    }
-  };
 
   // Submit Device Registration
   const handleRegisterDevice = async (e) => {
@@ -168,7 +141,10 @@ export default function AdminDashboard() {
         fullName: editingUser.fullName,
         username: editingUser.username,
         role: editingUser.role,
-        password: editingUser.password // Optional, backend ignores if blank
+        password: editingUser.password, // Optional, backend ignores if blank
+        email: editingUser.email,
+        phoneNumber: editingUser.phoneNumber,
+        telegramChatId: editingUser.telegramChatId
       });
       alert('Cập nhật thông tin người dùng thành công!');
       setEditingUser(null);
@@ -225,7 +201,10 @@ export default function AdminDashboard() {
   const filteredDevices = devicesList.filter(d => 
     d.deviceId.toLowerCase().includes(deviceSearch.toLowerCase()) ||
     d.deviceName.toLowerCase().includes(deviceSearch.toLowerCase()) ||
-    (d.user?.fullName && d.user.fullName.toLowerCase().includes(deviceSearch.toLowerCase()))
+    (d.user?.fullName 
+      ? d.user.fullName.toLowerCase().includes(deviceSearch.toLowerCase())
+      : "chưa gán".includes(deviceSearch.toLowerCase()) || "chua gan".includes(deviceSearch.toLowerCase())
+    )
   );
 
   const filteredUsers = usersList.filter(u => 
@@ -330,7 +309,7 @@ export default function AdminDashboard() {
           {/* Stat 4: Hardware Online */}
           <div className="bg-gradient-to-br from-cyan-50 to-cyan-100/50 border border-cyan-100/80 rounded-2xl p-5 shadow-sm flex items-center justify-between">
             <div>
-              <p className="text-xs font-bold text-cyan-500 uppercase tracking-wider font-sans">Mạch kết nối (Online)</p>
+              <p className="text-xs font-bold text-cyan-500 uppercase tracking-wider font-sans">Vườn đang chạy trên Broker</p>
               <h3 className="text-2xl font-black text-slate-800 mt-1">
                 {devicesList.filter(d => d.isOnline === true).length}
               </h3>
@@ -568,83 +547,10 @@ export default function AdminDashboard() {
 
           {/* TAB 2: USER ACCOUNT MANAGEMENT */}
           {activeTab === 'users' && (
-            <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+            <div className="grid grid-cols-1 gap-8">
               
-              {/* Form panel: Register User (1 col) */}
-              <div className="lg:col-span-1 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm h-fit">
-                <div className="space-y-4">
-                  <div className="flex items-center space-x-3 border-b border-slate-100 pb-4">
-                    <div className="p-2.5 bg-indigo-50 text-indigo-600 rounded-xl">
-                      <UserPlus className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h2 className="text-md font-bold text-slate-900">Cấp tài khoản mới</h2>
-                      <p className="text-xs text-slate-500">Khởi tạo thông tin đăng nhập cho nông dân</p>
-                    </div>
-                  </div>
-
-                  <form onSubmit={handleCreateUser} className="space-y-4">
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-400 uppercase">Tên hiển thị</label>
-                      <input 
-                        type="text"
-                        placeholder="Ví dụ: Nguyễn Văn A"
-                        value={newUser.fullName}
-                        onChange={e => setNewUser(prev => ({ ...prev, fullName: e.target.value }))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-500 text-sm font-semibold"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-400 uppercase">Địa chỉ Gmail</label>
-                      <input 
-                        type="email"
-                        placeholder="nongdan@gmail.com"
-                        value={newUser.username}
-                        onChange={e => setNewUser(prev => ({ ...prev, username: e.target.value }))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-500 text-sm font-semibold"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-400 uppercase">Mật khẩu ban đầu</label>
-                      <input 
-                        type="password"
-                        placeholder="Nhập mật khẩu"
-                        value={newUser.password}
-                        onChange={e => setNewUser(prev => ({ ...prev, password: e.target.value }))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-500 text-sm font-semibold"
-                        required
-                      />
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="block text-xs font-bold text-slate-400 uppercase">Vai trò quản trị</label>
-                      <select
-                        value={newUser.role}
-                        onChange={e => setNewUser(prev => ({ ...prev, role: e.target.value }))}
-                        className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-500 text-sm cursor-pointer font-semibold"
-                      >
-                        <option value="USER">USER (Farmer)</option>
-                        <option value="ADMIN">ADMIN (Quản trị viên)</option>
-                      </select>
-                    </div>
-
-                    <button
-                      type="submit"
-                      disabled={creatingUser}
-                      className="w-full mt-6 bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 rounded-xl transition duration-200 text-sm disabled:opacity-50 active:scale-95"
-                    >
-                      {creatingUser ? 'Đang khởi tạo...' : 'Tạo tài khoản'}
-                    </button>
-                  </form>
-                </div>
-              </div>
-
-              {/* Table panel: List Users (2 cols) */}
-              <div className="lg:col-span-2 bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-6">
+              {/* Table panel: List Users (Full Width) */}
+              <div className="bg-white border border-slate-100 rounded-3xl p-6 shadow-sm space-y-6">
                 
                 {/* Table Header Controls */}
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
@@ -675,7 +581,10 @@ export default function AdminDashboard() {
                         <tr className="border-b border-slate-100 text-slate-400 font-bold uppercase text-[10px] tracking-wider">
                           <th className="pb-3 px-4">Họ Tên</th>
                           <th className="pb-3 px-4">Tài Khoản (Gmail)</th>
+                          <th className="pb-3 px-4">Email</th>
+                          <th className="pb-3 px-4">Số Điện Thoại</th>
                           <th className="pb-3 px-4">Vai Trò</th>
+                          <th className="pb-3 px-4">Telegram Chat ID</th>
                           <th className="pb-3 px-4">Ngày Tạo</th>
                           <th className="pb-3 px-4 text-right">Thao Tác</th>
                         </tr>
@@ -692,6 +601,8 @@ export default function AdminDashboard() {
                                 <span>{item.fullName}</span>
                               </td>
                               <td className="py-4 px-4 font-semibold text-slate-600">{item.username}</td>
+                              <td className="py-4 px-4 text-xs font-semibold text-slate-500">{item.email || <span className="text-slate-300 font-medium">N/A</span>}</td>
+                              <td className="py-4 px-4 text-xs font-semibold text-slate-500">{item.phoneNumber || <span className="text-slate-300 font-medium">Trống</span>}</td>
                               <td className="py-4 px-4">
                                 <span className={`inline-flex items-center space-x-1.5 px-3 py-1 rounded-full text-[10px] font-black border ${
                                   isAdmin 
@@ -702,6 +613,7 @@ export default function AdminDashboard() {
                                   <span>{item.role}</span>
                                 </span>
                               </td>
+                              <td className="py-4 px-4 font-semibold text-slate-500 text-xs">{item.telegramChatId || <span className="text-slate-300 font-medium">Chưa liên kết</span>}</td>
                               <td className="py-4 px-4 text-slate-400 text-xs font-medium">
                                 <span className="inline-flex items-center space-x-1.5">
                                   <Calendar className="w-3 h-3 text-slate-400" />
@@ -716,7 +628,10 @@ export default function AdminDashboard() {
                                       fullName: item.fullName,
                                       username: item.username,
                                       role: item.role,
-                                      password: ''
+                                      password: '',
+                                      email: item.email || '',
+                                      phoneNumber: item.phoneNumber || '',
+                                      telegramChatId: item.telegramChatId || ''
                                     })}
                                     className="p-1.5 text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 rounded-xl border border-indigo-100 transition active:scale-90"
                                     title="Chỉnh sửa tài khoản"
@@ -741,10 +656,8 @@ export default function AdminDashboard() {
                   </div>
                 )}
               </div>
-
             </div>
           )}
-
         </div>
       )}
 
@@ -790,12 +703,45 @@ export default function AdminDashboard() {
               </div>
 
               <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase">Email liên hệ (Tùy chọn)</label>
+                <input 
+                  type="email"
+                  placeholder="lienhe@gmail.com"
+                  value={editingUser.email || ''}
+                  onChange={e => setEditingUser(prev => ({ ...prev, email: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-600 text-sm font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase">Số điện thoại (Tùy chọn)</label>
+                <input 
+                  type="text"
+                  placeholder="Ví dụ: 0987654321"
+                  value={editingUser.phoneNumber || ''}
+                  onChange={e => setEditingUser(prev => ({ ...prev, phoneNumber: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-600 text-sm font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
                 <label className="block text-xs font-bold text-slate-400 uppercase">Đổi mật khẩu (Bỏ trống nếu giữ nguyên)</label>
                 <input 
                   type="password"
                   placeholder="Mật khẩu mới"
                   value={editingUser.password}
                   onChange={e => setEditingUser(prev => ({ ...prev, password: e.target.value }))}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-600 text-sm font-semibold"
+                />
+              </div>
+
+              <div className="space-y-1">
+                <label className="block text-xs font-bold text-slate-400 uppercase">Mã Telegram Chat ID (Tùy chọn)</label>
+                <input 
+                  type="text"
+                  placeholder="Ví dụ: 123456789"
+                  value={editingUser.telegramChatId || ''}
+                  onChange={e => setEditingUser(prev => ({ ...prev, telegramChatId: e.target.value }))}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:border-indigo-600 text-sm font-semibold"
                 />
               </div>

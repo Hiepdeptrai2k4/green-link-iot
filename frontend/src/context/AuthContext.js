@@ -88,6 +88,34 @@ export const AuthProvider = ({ children }) => {
     }
   }, [isAuthenticated, user?.email, userRole, currentGardenId, token]);
 
+  // Periodically refresh garden status (online/offline state) every 10 seconds
+  useEffect(() => {
+    if (!isAuthenticated || !user?.email) return;
+
+    const refreshGardensStatus = async () => {
+      try {
+        const endpoint = userRole === 'ADMIN' 
+          ? 'http://localhost:8080/api/admin/devices'
+          : `http://localhost:8080/api/garden/my-gardens?email=${user.email}`;
+        
+        const response = await fetch(endpoint, {
+          headers: token ? { 'Authorization': `Bearer ${token}` } : {}
+        });
+        if (response.ok) {
+          const data = await response.json();
+          setGardens(data);
+          localStorage.setItem('user_gardens', JSON.stringify(data));
+        }
+      } catch (err) {
+        console.error("Failed to periodically refresh user gardens list:", err);
+      }
+    };
+
+    const interval = setInterval(refreshGardensStatus, 10000); // 10 seconds
+
+    return () => clearInterval(interval);
+  }, [isAuthenticated, user?.email, userRole, token]);
+
   // LOGIN — authenticates via Spring Boot backend Auth API
   const login = async (email, password) => {
     try {
@@ -176,6 +204,14 @@ export const AuthProvider = ({ children }) => {
     localStorage.setItem('current_garden_id', idStr);
   };
 
+  const updateUserInfo = (newUserData) => {
+    setUser(prev => {
+      const updated = { ...prev, ...newUserData };
+      localStorage.setItem('user', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
   return (
     <AuthContext.Provider
       value={{
@@ -188,6 +224,7 @@ export const AuthProvider = ({ children }) => {
         login,
         logout,
         setCurrentGardenId: updateGardenId,
+        updateUserInfo,
       }}
     >
       {children}

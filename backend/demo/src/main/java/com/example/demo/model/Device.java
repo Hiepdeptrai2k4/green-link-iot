@@ -29,6 +29,10 @@ public class Device {
     @Column(name = "status")
     private Boolean status; // true = Online, false = Offline
 
+    @Column(name = "telegram_alerts_enabled")
+    @Builder.Default
+    private Boolean telegramAlertsEnabled = true;
+
     @Column(name = "created_at", insertable = false, updatable = false)
     private LocalDateTime createdAt;
 }

@@ -12,20 +12,29 @@ import org.springframework.security.config.annotation.web.configuration.EnableWe
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.List;
 
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
+    /**
+     * BCrypt password encoder bean for hashing and verifying passwords.
+     */
     @Bean
-    public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
+    public PasswordEncoder passwordEncoder() {
+        return new BCryptPasswordEncoder();
+    }
+
+    @Bean
+    public SecurityFilterChain securityFilterChain(HttpSecurity http, JwtTokenProvider jwtTokenProvider) throws Exception {
         http
             .csrf(AbstractHttpConfigurer::disable)
             .cors(AbstractHttpConfigurer::disable) // CORS is configured on controllers, disable security cors config to avoid conflicts
@@ -36,15 +45,24 @@ public class SecurityConfig {
                 .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .anyRequest().permitAll()
             )
-            .addFilterBefore(new MockJwtAuthenticationFilter(), UsernamePasswordAuthenticationFilter.class);
+            .addFilterBefore(new JwtAuthenticationFilter(jwtTokenProvider), UsernamePasswordAuthenticationFilter.class);
             
         return http.build();
     }
 
     /**
-     * Custom Filter to authenticate mock tokens sent by the React frontend
+     * JWT Authentication Filter that supports:
+     * 1. Signed JWT tokens (primary, secure) - verified via JwtTokenProvider
+     * 2. Legacy mock-jwt tokens (backward compatibility fallback)
      */
-    private static class MockJwtAuthenticationFilter extends OncePerRequestFilter {
+    private static class JwtAuthenticationFilter extends OncePerRequestFilter {
+
+        private final JwtTokenProvider jwtTokenProvider;
+
+        public JwtAuthenticationFilter(JwtTokenProvider jwtTokenProvider) {
+            this.jwtTokenProvider = jwtTokenProvider;
+        }
+
         @Override
         protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
                 throws ServletException, IOException {
@@ -52,7 +70,24 @@ public class SecurityConfig {
             String authHeader = request.getHeader("Authorization");
             if (authHeader != null && authHeader.startsWith("Bearer ")) {
                 String token = authHeader.substring(7);
-                if (token.startsWith("mock-jwt:")) {
+
+                // 1. Try to validate as a signed JWT token first
+                if (jwtTokenProvider.validateToken(token)) {
+                    String username = jwtTokenProvider.getUsername(token);
+                    String role = jwtTokenProvider.getRole(token);
+                    if (role != null) {
+                        role = role.toUpperCase();
+                        if ("USER".equals(role)) {
+                            role = "FARMER";
+                        }
+                    }
+                    SimpleGrantedAuthority authority = new SimpleGrantedAuthority("ROLE_" + role);
+                    UsernamePasswordAuthenticationToken authentication = new UsernamePasswordAuthenticationToken(
+                            username, null, Collections.singletonList(authority));
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                }
+                // 2. Fallback: legacy mock-jwt token (backward compatibility)
+                else if (token.startsWith("mock-jwt:")) {
                     String[] parts = token.split(":");
                     if (parts.length >= 4) {
                         String role = parts[1].toUpperCase();

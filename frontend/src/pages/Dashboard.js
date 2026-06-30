@@ -55,10 +55,10 @@ export default function Dashboard() {
   
   // Sensor / Live State
   const [sensors, setSensors] = useState({ 
-    temp: 26.5, 
-    humi: 68.2, 
-    lux: 1250.0, 
-    soil: 55.0,
+    temp: 0.0, 
+    humi: 0.0, 
+    lux: 0.0, 
+    soil: 0.0,
     led: "OFF",
     fan: "OFF",
     pump: "OFF",
@@ -339,9 +339,35 @@ export default function Dashboard() {
                 </select>
               </div>
             </div>
-            <div className="inline-flex items-center space-x-1.5 bg-emerald-500/20 border border-emerald-400/30 px-3 py-1 rounded-full text-xs font-bold text-emerald-300 mt-2">
-              <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400 animate-ping' : 'bg-rose-500 animate-pulse'}`}></span>
-              <span>{wsConnected ? `Native WebSocket Active (${activeGarden?.deviceName || activeGarden?.name || 'Vườn'})` : 'Connection Offline'}</span>
+            <div className="flex flex-wrap gap-2.5 mt-2">
+              {/* Garden Hardware Online/Offline Status */}
+              <div className={`inline-flex items-center space-x-1.5 border px-3 py-1 rounded-full text-[11px] font-bold ${
+                activeGarden?.isOnline 
+                  ? 'bg-green-500/20 border-green-400/30 text-green-300' 
+                  : 'bg-slate-500/20 border-slate-400/30 text-slate-400'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${activeGarden?.isOnline ? 'bg-green-400 animate-pulse' : 'bg-slate-400'}`}></span>
+                <span>
+                  {activeGarden?.isOnline 
+                    ? 'MẠCH KẾT NỐI (ONLINE)' 
+                    : `MẠCH NGOẠI TUYẾN (OFFLINE) - Cuối: ${
+                        activeGarden?.lastSeen && activeGarden.lastSeen !== 'Chưa nhận tin'
+                          ? new Date(activeGarden.lastSeen).toLocaleString('vi-VN') 
+                          : 'Chưa có dữ liệu'
+                      }`
+                  }
+                </span>
+              </div>
+
+              {/* WebSocket Server Connection Status */}
+              <div className={`inline-flex items-center space-x-1.5 border px-3 py-1 rounded-full text-[11px] font-bold ${
+                wsConnected 
+                  ? 'bg-emerald-500/20 border-emerald-400/30 text-emerald-300' 
+                  : 'bg-rose-500/20 border-rose-400/30 text-rose-300'
+              }`}>
+                <span className={`w-2 h-2 rounded-full ${wsConnected ? 'bg-green-400 animate-ping' : 'bg-rose-500'}`}></span>
+                <span>{wsConnected ? 'WEB SOCKET OK' : 'MẤT KẾT NỐI SERVER'}</span>
+              </div>
             </div>
           </div>
           <button 
@@ -562,8 +588,8 @@ export default function Dashboard() {
                     </div>
                     <input 
                       type="range" 
-                      min="10" 
-                      max="90" 
+                      min="0" 
+                      max="100" 
                       value={thresholds.minSoilMoisture} 
                       onChange={(e) => setThresholds(prev => ({ ...prev, minSoilMoisture: parseInt(e.target.value) }))}
                       className="w-full accent-green-600 cursor-pointer h-2 bg-slate-100 rounded-lg appearance-none border border-slate-100" 
@@ -578,8 +604,8 @@ export default function Dashboard() {
                     </div>
                     <input 
                       type="range" 
-                      min="15" 
-                      max="45" 
+                      min="0" 
+                      max="60" 
                       value={thresholds.maxTemperature} 
                       onChange={(e) => setThresholds(prev => ({ ...prev, maxTemperature: parseInt(e.target.value) }))}
                       className="w-full accent-rose-500 cursor-pointer h-2 bg-slate-100 rounded-lg appearance-none border border-slate-100" 

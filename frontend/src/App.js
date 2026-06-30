@@ -9,6 +9,7 @@ import AdminLayout from './components/AdminLayout';
 
 // Pages
 import Login from './pages/Login';
+import Register from './pages/Register';
 import Dashboard from './pages/Dashboard';
 import AdminDashboard from './pages/AdminDashboard';
 import HistoryPage from './pages/History';
@@ -49,6 +50,16 @@ function AppContent() {
           element={
             <PublicRoute>
               <Login />
+            </PublicRoute>
+          }
+        />
+
+        {/* PUBLIC: Register */}
+        <Route
+          path="/register"
+          element={
+            <PublicRoute>
+              <Register />
             </PublicRoute>
           }
         />

@@ -94,7 +94,6 @@ export default function AdminLayout() {
             </div>
             <div className="flex-1 min-w-0">
               <p className="font-bold text-white truncate">{user?.name || 'Admin'}</p>
-              <p className="text-xs text-slate-500 truncate">{user?.email}</p>
             </div>
           </div>
         </div>

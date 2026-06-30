@@ -19,8 +19,10 @@ CREATE TABLE users (
     username VARCHAR(50) UNIQUE NOT NULL, -- Email đăng nhập (Ví dụ: admin@test.com, user@test.com)
     password VARCHAR(255) NOT NULL,       -- Chuỗi ký tự mật khẩu (Tương thích mã hóa BCrypt của Spring Security)
     full_name VARCHAR(100) NOT NULL,      -- Tên hiển thị người dùng
-    role VARCHAR(20) DEFAULT 'USER',       
-    email VARCHAR(100),                   
+    role VARCHAR(20) DEFAULT 'USER',       -- Vai trò phân quyền: 'ADMIN' hoặc 'USER'
+    email VARCHAR(100),                   -- Địa chỉ email người dùng
+    telegram_chat_id VARCHAR(50),         -- Mã ID chat Telegram để nhận cảnh báo
+    phone_number VARCHAR(20) DEFAULT NULL, -- Số điện thoại người dùng
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB;
 
@@ -30,6 +32,7 @@ CREATE TABLE devices (
     user_id INT NULL,                   -- Khóa ngoại nối sang tài khoản sở hữu
     device_name VARCHAR(100) NOT NULL, -- Tên đặt cho khu vườn (Ví dụ: 'Vườn Lan', 'Vườn Cam')
     status BOOLEAN DEFAULT TRUE,        -- Trạng thái thiết bị: TRUE (Online), FALSE (Offline)
+    telegram_alerts_enabled BOOLEAN DEFAULT TRUE, -- Cho phép gửi cảnh báo telegram cho vườn này
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB;
